@@ -1,3 +1,4 @@
+import csv
 import logging
 import pika
 
@@ -83,12 +84,69 @@ class Supervisor:
     channel.queue_bind("clustering", "post_processing")
     channel.basic_qos(prefetch_count=5)
     channel.basic_consume(queue="clustering", auto_ack=False, on_message_callback=self.cluster)
+    logger.info("Hello")
     logger.debug("Waiting for messages...")
     channel.start_consuming()
 
 
   def cluster(self, ch, method, properties, body):
 
+    """
+    Receives the incoming candidate information
+    and runs some processing on that data
+
+    This is a callback for the basic_consume pika functions.
+
+    Arguments:
+
+      All the arguments are the required arguments for a pika
+      callback function.
+
+    """
+
     cand_data = loads(body.decode("utf-8"))
-    logger.debug("Received candidate information %s", cand_data)
+    logger.info("Received candidate information %s", cand_data)
     ch.basic_ack(delivery_tag=method.delivery_tag)
+
+    self.trigger(cand_data, True)
+
+  def trigger(self, cand_data: Dict, dummy: bool = False) -> None:
+
+    """
+    Sends a trigger to save the transient buffer data block with the
+    candidate
+
+    This method is called for every candidate that makes it
+    through the various post-processing stages
+
+    Arguments:
+
+      dummy: bool, default False
+        If set to 'true', sends a dummy trigger that does not
+        save the transient buffer data. Setting it to 'false' (or just
+        using the default value) will send a proper trigger.
+
+      cand_data: Dict
+        Candidate data required for triggering. Relevant information
+        only is send with the proper trigger and all the imformation
+        is send with the dummy trigger.
+
+    Returns:
+
+      None
+
+    """
+
+    if dummy:
+
+      with open("clustering.out", "a") as cf:
+        writer = csv.writer(cf, delimiter=" ")
+        writer.writerow([cand_data["mjd"],
+                          cand_data["dm"],
+                          cand_data["snr"],
+                          cand_data["beam_abs"],
+                          cand_data["beam_type"],
+                          cand_data["ra"],
+                          cand_data["dec"],
+                          cand_data["time_sent"]])
+      
