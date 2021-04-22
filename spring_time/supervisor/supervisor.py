@@ -4,9 +4,13 @@ import pika
 
 import multiprocessing as mp
 
+from astropy.time import Time
 from json import loads
 from socket import gethostname
 from typing import Dict
+
+from meertrig.voevent import VOEvent
+from meertrig.config_helpers import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +33,23 @@ class Supervisor:
       that this code is running on if the supervisor is run inside a
       Docker container with --hostname option
 
+    _voevent_defaults: Dict
+      Default parameter values for the trigger. Contains information
+      that should not really change between the triggers, such as
+      the author contact details and some basic information about
+      the backend.
+
   """
 
   def __init__(self, configuration: Dict):
 
     logger.debug("Starting the supervisor...")
+    
     self._hostname = gethostname()
+    self._voevent_defaults = get_config(configuration.voedef)
+    self._voevent = VOEvent(host=configuration.voe_host,
+                            port=configuration.voe_port)
 
-  
   def supervise(self) -> None:
 
     """
@@ -149,4 +162,38 @@ class Supervisor:
                           cand_data["ra"],
                           cand_data["dec"],
                           cand_data["time_sent"]])
-      
+    
+
+    params = {
+      'utc': Time.now().iso,
+      'title': 'Detection of test event',
+      'short_name': 'Test event',
+      'beam_semi_major': 64.0 / 60.0,
+      'beam_semi_minor': 28.0 / 60.0,
+      'beam_rotation_angle': 0.0,
+      'tsamp': 0.367,
+      'cfreq': 1284.0,
+      'bandwidth': 856.0,
+      'nchan': 4096,
+      'beam': 123,
+      'dm': cand_data["dm"],
+      'dm_err': 0.25,
+      'width': 0.300,
+      'snr': cand_data["snr"],
+      'flux': 10,
+      'ra': 20.4,
+      'dec': 45.0,
+      'gl': 10,
+      'gb': 20,
+      'name': "Source",
+      'importance': 0.6,
+      'internal': 1,
+      'open_alert': 0,
+      'test': 1,
+      'product_id': "array_1",
+    }
+
+    params.update(self._voevent_defaults)
+
+    event = self._voevent.generate_event(params, True)
+    self._voevent.send_event(event)
