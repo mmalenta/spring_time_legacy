@@ -46,9 +46,9 @@ class Supervisor:
     logger.debug("Starting the supervisor...")
     
     self._hostname = gethostname()
-    self._voevent_defaults = get_config(configuration.voedef)
-    self._voevent = VOEvent(host=configuration.voe_host,
-                            port=configuration.voe_port)
+    self._voevent_defaults = get_config(configuration["voe_defaults"])
+    self._voevent = VOEvent(host=configuration["voe_host"],
+                            port=configuration["voe_port"])
 
   def supervise(self) -> None:
 
@@ -97,7 +97,6 @@ class Supervisor:
     channel.queue_bind("clustering", "post_processing")
     channel.basic_qos(prefetch_count=5)
     channel.basic_consume(queue="clustering", auto_ack=False, on_message_callback=self.cluster)
-    logger.info("Hello")
     logger.debug("Waiting for messages...")
     channel.start_consuming()
 
