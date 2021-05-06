@@ -13,6 +13,6 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     package_dir={"": "spring_time"},
-    packages=["supervisor"],
+    packages=["supervisor", "clusterer"],
     scripts=["bin/spring_supervisor.py"]
 )
