@@ -9,7 +9,7 @@ from json import loads
 from socket import gethostname
 from typing import Dict
 
-from clusterer.clusteter import Clusterer
+from clusterer.clusterer import Clusterer
 
 logger = logging.getLogger(__name__)
 
