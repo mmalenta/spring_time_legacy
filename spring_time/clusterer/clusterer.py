@@ -1,12 +1,15 @@
+import csv
 import heapq
 import logging
+from threading import currentThread
 import pika
 import queue
+import requests as req
 
 from json import dumps
-from numpy import logical_and
+from numpy import abs, logical_and
 from socket import gethostname
-from time import sleep, time
+from time import gmtime, sleep, strftime, time
 from typing import Dict
 
 from meertrig.voevent import VOEvent
@@ -83,6 +86,13 @@ class Clusterer:
       Buffer time limit to allow for any extra candidates to arrive,
       but not too long as to keep too many candidates in memory.
       
+    IMPORTANT CLUSTERING VARIABLES:
+
+    _dm_thresh: float, default 0.05
+      Fractional DM tolerance used for matching
+
+    _time_thresh: float [s], default 0.030 (30ms)
+      Time tolerance used for matching
 
   """
 
@@ -96,11 +106,14 @@ class Clusterer:
     self._voevent = VOEvent(host=configuration["voe_host"],
                             port=configuration["voe_port"])
 
-    self._buffer_wait_limit = 60
-    self._cluster_wait_limit = 120
+    self._buffer_wait_limit = 10
+    self._cluster_wait_limit = 40
 
     self._cluster_candidates = []
     self._buffer_candidates = []
+
+    self._dm_thresh = 0.05 
+    self._time_thresh = 30e-03
 
   def cluster(self) -> None:
 
@@ -123,19 +136,16 @@ class Clusterer:
 
         candidate = self._candidate_queue.get_nowait()
 
-        logger.debug("Received candidate")
-        logger.debug(candidate)
+        logger.info("Received candidate")
+        logger.info(candidate)
 
         current_time = time()
         cand_time = Time(candidate["mjd"], format="mjd").unix
 
         diff_time = current_time - cand_time
-        logger.info(diff_time)
+        logger.debug(diff_time)
 
         if (diff_time > self._cluster_wait_limit):
-
-          logger.warning("Time difference of %.2f!"
-                          " Will not participate in clustering!", diff_time)
 
           """ 
 
@@ -147,8 +157,12 @@ class Clusterer:
           to stop it though).
 
           """
+
+          # This should not happen under ususal circumstances, so we
+          # log is as a warning
+          logger.warning("Time difference of %.2f!"
+                          " Will not participate in clustering!", diff_time)
         
-          # As a test just send straight back for now
           channel.basic_publish(exchange="post_processing",
                                 routing_key="archiving_" + candidate["hostname"],
                                 body=dumps(candidate))
@@ -157,11 +171,19 @@ class Clusterer:
 
           logger.warning("Time difference of %.2f!"
                           " Will not be saved by the TB!", diff_time)
+          # There has to be a better way than constant data structure
+          # swapping
           heapq.heappush(self._cluster_candidates, 
-                          (cand_time,
+                          (cand_time, 
                           (candidate["mjd"],
                           candidate["dm"],
-                          candidate["beam_abs"])))
+                          candidate["snr"],
+                          candidate["beam_abs"],
+                          candidate["beam_type"],
+                          candidate["ra"],
+                          candidate["dec"],
+                          candidate["time_sent"],
+                          candidate["hostname"])))
 
         else:
 
@@ -173,25 +195,27 @@ class Clusterer:
                           (candidate["mjd"],
                           candidate["dm"],
                           candidate["snr"],
-                          candidate["beam_abs"])))
+                          candidate["beam_abs"],
+                          candidate["beam_type"],
+                          candidate["ra"],
+                          candidate["dec"],
+                          candidate["time_sent"],
+                          candidate["hostname"])))
 
           heapq.heappush(self._cluster_candidates, 
-                          (cand_time,
+                          (cand_time, 
                           (candidate["mjd"],
                           candidate["dm"],
                           candidate["snr"],
-                          candidate["beam_abs"])))
+                          candidate["beam_abs"],
+                          candidate["beam_type"],
+                          candidate["ra"],
+                          candidate["dec"],
+                          candidate["time_sent"],
+                          candidate["hostname"])))
 
       except queue.Empty:
         logger.debug("No candidate yet...")
-
-      """
-
-      TODO: Do the work here. We need to check if the data can be
-      clustered independently of receiving or not receiving a new
-      candidate
-
-      """
 
       if (len(self._buffer_candidates) > 0):
 
@@ -199,28 +223,96 @@ class Clusterer:
         oldest_buffer = self._buffer_candidates[0]
       
         if ((current_time - oldest_buffer[0]) >= self._buffer_wait_limit):
-          logger.debug("Candidates ready for Transient Buffer clustering")
+          logger.debug("Candidates ready for the Transient buffer clustering")
 
-          # This is a very simple implementation of grid clustering
-          # Fractional tolerance
-          dm_thresh = 0.02
-          # Tolerance in s (10ms)
-          time_thresh = 10e-03
+          # This will be a proper performance killer
+          current_buffer = [candidate for candidate in self._buffer_candidates
+                            if (abs(candidate[0] - oldest_buffer[0]) <= self._time_thresh
+                            and abs(candidate[1][1] - oldest_buffer[1][1]) <= self._dm_thresh * oldest_cluster[0])]
 
-          tmp_candidates = sorted(self._buffer_candidates)
+          self._buffer_candidates = list(set(self._buffer_candidates)
+                                          - set(current_buffer))
 
-          cluster_mask = logical_and()
+          logger.info("%d candidates in the TB cluster", len(current_buffer))
+          print(current_buffer)
 
+          logger.info("%d candidates left in the buffer queue",
+                        len(self._buffer_candidates))
+
+          current_buffer = sorted(current_buffer, key = lambda cand: cand[1][2], 
+                                  reverse=True)
+          trigger_candidate = current_buffer[0]
+          print(trigger_candidate)
+
+          trigger_dict = {
+            "mjd": trigger_candidate[1][0],
+            "dm": trigger_candidate[1][1],
+            "snr": trigger_candidate[1][2],
+            "beam_abs": trigger_candidate[1][3],
+            "beam_type": trigger_candidate[1][4],
+            "ra": trigger_candidate[1][5],
+            "dec": trigger_candidate[1][6],
+            "time_sent": trigger_candidate[1][7],
+            "hostname": trigger_candidate[1][8]
+          }
+
+          self._trigger(trigger_dict, True)
+
+          oldest_buffer = []
+          current_buffer = []
 
       if (len(self._cluster_candidates) > 0):
 
         current_time = time()
-        oldest_cluster = self._cluster_candidates[0][0]
-        if ((current_time - oldest_cluster) >= self._cluster_wait_limit):
+        oldest_cluster = self._cluster_candidates[0]
+        if ((current_time - oldest_cluster[0]) >= self._cluster_wait_limit):
           logger.debug("Candidates ready for the final clustering")
 
-      logger.debug("Current buffer candidates %s", self._buffer_candidates)
-      sleep(2)
+          """
+            This clustering algorithm modifies the approach currently
+            used for the MeerTRAB database by Fabian Jankowski
+            The original code can be found under
+            https://bitbucket.org/jankowsk/meertrapdb/src/master/
+          """
+
+          # This will be a proper performance killer
+          current_cluster = [candidate for candidate in self._cluster_candidates
+                            if (abs(candidate[0] - oldest_cluster[0]) <= self._time_thresh
+                            and abs(candidate[1][1] - oldest_cluster[1][1]) <= self._dm_thresh * oldest_cluster[0])]
+
+          self._cluster_candidates = list(set(self._cluster_candidates)
+                                          - set(current_cluster))
+
+          logger.info("%d candidates in the cluster", len(current_cluster))
+          print(current_cluster)
+
+          logger.info("%d candidates left in the clustering queue",
+                        len(self._cluster_candidates))
+
+          # Now sort the data by SNR and get the highest-SNR candidate
+          # We send the highest-SNR candidate to the trigger
+          # We send all the candidates to the archiving
+          current_cluster = sorted(current_cluster, key = lambda cand: cand[1][2], 
+                                  reverse=True)
+
+          for cand in current_cluster:
+
+            archive_dict = {
+              "mjd": cand[1][0],
+              "dm": cand[1][1],
+              "snr": cand[1][2],
+              "beam_abs": cand[1][3],
+              "beam_type": cand[1][4],
+              "ra": cand[1][5],
+              "dec": cand[1][6],
+              "time_sent": cand[1][7],
+              "hostname": cand[1][8]
+            }
+
+            channel.basic_publish(exchange="post_processing",
+                                  routing_key="archiving_" + archive_dict["hostname"],
+                                  body=dumps(archive_dict))
+
 
   def _trigger(self, cand_data: Dict, dummy: bool = False) -> None:
 
@@ -261,38 +353,82 @@ class Clusterer:
                           cand_data["ra"],
                           cand_data["dec"],
                           cand_data["time_sent"]])
-    
 
-    params = {
-      'utc': Time.now().iso,
-      'title': 'Detection of test event',
-      'short_name': 'Test event',
-      'beam_semi_major': 64.0 / 60.0,
-      'beam_semi_minor': 28.0 / 60.0,
-      'beam_rotation_angle': 0.0,
-      'tsamp': 0.367,
-      'cfreq': 1284.0,
-      'bandwidth': 856.0,
-      'nchan': 4096,
-      'beam': 123,
-      'dm': cand_data["dm"],
-      'dm_err': 0.25,
-      'width': 0.300,
-      'snr': cand_data["snr"],
-      'flux': 10,
-      'ra': 20.4,
-      'dec': 45.0,
-      'gl': 10,
-      'gb': 20,
-      'name': "Source",
-      'importance': 0.6,
-      'internal': 1,
-      'open_alert': 0,
-      'test': 1,
-      'product_id': "array_1",
+    else:    
+
+      params = {
+        'utc': Time.now().iso,
+        'title': 'Detection of test event',
+        'short_name': 'Test event',
+        'beam_semi_major': 64.0 / 60.0,
+        'beam_semi_minor': 28.0 / 60.0,
+        'beam_rotation_angle': 0.0,
+        'tsamp': 0.367,
+        'cfreq': 1284.0,
+        'bandwidth': 856.0,
+        'nchan': 4096,
+        'beam': 123,
+        'dm': cand_data["dm"],
+        'dm_err': 0.25,
+        'width': 0.300,
+        'snr': cand_data["snr"],
+        'flux': 10,
+        'ra': 20.4,
+        'dec': 45.0,
+        'gl': 10,
+        'gb': 20,
+        'name': "Source",
+        'importance': 0.6,
+        'internal': 1,
+        'open_alert': 0,
+        'test': 1,
+        'product_id': "array_1",
+      }
+
+      params.update(self._voevent_defaults)
+
+      event = self._voevent.generate_event(params, True)
+      self._voevent.send_event(event)
+
+    self._send_trigger_notofication(cand_data)
+
+  def _send_trigger_notofication(self, cand_data: Dict) -> None:
+
+    """
+    
+    Sends a Slack message about the transient buffer trigger.
+
+    Message contains some basic candidate information.
+
+    Parameters:
+
+      cand_data: Dict
+        Candidate data required for triggering. Relevant information
+        only is send with the proper trigger and all the imformation
+        is send with the dummy trigger.
+
+    Returns:
+
+      None
+
+    """
+
+    message = {
+      "pretext": f"* {strftime('%Y-%m-%d %H:%M:%S', gmtime())} NEW TB trigger* \n",
+      "color": "#37961d",
+      "text": f"MJD: {cand_data['mjd']}\n \
+                DM: {cand_data['dm']}\n \
+                SNR: {cand_data['snr']}\n \
+                Beam: {cand_data['beam_abs']}\n \
+                Beam type: {cand_data['beam_type']}\n \
+                RA: {cand_data['ra']}\n \
+                DEC: {cand_data['dec']}\n"
     }
 
-    params.update(self._voevent_defaults)
+    trigger_message = {
+      "attachments": [message]
+    }
 
-    event = self._voevent.generate_event(params, True)
-    self._voevent.send_event(event)
+    trigger_message_json = dumps(trigger_message)
+    req.post("",
+              data=trigger_message_json)
