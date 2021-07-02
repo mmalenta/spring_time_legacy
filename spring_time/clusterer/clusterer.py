@@ -106,8 +106,8 @@ class Clusterer:
     self._voevent = VOEvent(host=configuration["voe_host"],
                             port=configuration["voe_port"])
 
-    self._buffer_wait_limit = 10
-    self._cluster_wait_limit = 40
+    self._buffer_wait_limit = 60
+    self._cluster_wait_limit = 120
 
     self._cluster_candidates = []
     self._buffer_candidates = []
