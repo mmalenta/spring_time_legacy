@@ -390,9 +390,9 @@ class Clusterer:
       event = self._voevent.generate_event(params, True)
       self._voevent.send_event(event)
 
-    self._send_trigger_notofication(cand_data)
+    self._send_trigger_notification(cand_data)
 
-  def _send_trigger_notofication(self, cand_data: Dict) -> None:
+  def _send_trigger_notification(self, cand_data: Dict) -> None:
 
     """
     
