@@ -7,15 +7,13 @@ import queue
 import requests as req
 
 from json import dumps
-from numpy import abs, logical_and
+from numpy import abs
 from socket import gethostname
 from time import gmtime, sleep, strftime, time
 from typing import Dict
 
 from meertrig.voevent import VOEvent
 from meertrig.config_helpers import get_config
-
-from meertrapdb.clustering import Clusterer as MeerCluster
 
 from astropy.time import Time
 
