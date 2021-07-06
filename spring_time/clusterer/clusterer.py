@@ -310,14 +310,14 @@ class Clusterer:
 
             try:
               channel.basic_publish(exchange="post_processing",
-                                    routing_key="archiving_" + archive_dict["hostname"],
+                                    routing_key="archiving_" + cand[1][9],
                                     body=dumps(archive_dict))
             except:
               logger.error("Resetting the lost RabbitMQ connection")
               connection = pika.BlockingConnection(pika.ConnectionParameters(host="localhost"))
               channel = connection.channel()
               channel.basic_publish(exchange="post_processing",
-                                    routing_key="archiving_" + archive_dict["hostname"],
+                                    routing_key="archiving_" + cand[1][9],
                                     body=dumps(archive_dict))
 
   def _trigger(self, cand_data: Dict, dummy: bool = False) -> None:
