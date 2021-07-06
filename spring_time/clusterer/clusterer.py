@@ -163,9 +163,17 @@ class Clusterer:
           logger.warning("Time difference of %.2f!"
                           " Will not participate in clustering!", diff_time)
         
-          channel.basic_publish(exchange="post_processing",
-                                routing_key="archiving_" + candidate["hostname"],
-                                body=dumps(candidate))
+          try:
+            channel.basic_publish(exchange="post_processing",
+                                  routing_key="archiving_" + candidate["hostname"],
+                                  body=dumps(candidate))
+          except:
+            logger.error("Resetting the lost RabbitMQ connection")
+            connection = pika.BlockingConnection(pika.ConnectionParameters(host="localhost"))
+            channel = connection.channel()
+            channel.basic_publish(exchange="post_processing",
+                                  routing_key="archiving_" + candidate["hostname"],
+                                  body=dumps(candidate))
 
         elif (diff_time > self._buffer_wait_limit):
 
@@ -215,7 +223,7 @@ class Clusterer:
                           candidate["hostname"])))
 
       except queue.Empty:
-        logger.debug("No candidate yet...")
+        pass 
 
       if (len(self._buffer_candidates) > 0):
 
@@ -234,7 +242,6 @@ class Clusterer:
                                           - set(current_buffer))
 
           logger.info("%d candidates in the TB cluster", len(current_buffer))
-          print(current_buffer)
 
           logger.info("%d candidates left in the buffer queue",
                         len(self._buffer_candidates))
@@ -242,7 +249,6 @@ class Clusterer:
           current_buffer = sorted(current_buffer, key = lambda cand: cand[1][2], 
                                   reverse=True)
           trigger_candidate = current_buffer[0]
-          print(trigger_candidate)
 
           trigger_dict = {
             "mjd": trigger_candidate[1][0],
@@ -309,10 +315,17 @@ class Clusterer:
               "hostname": cand[1][8]
             }
 
-            channel.basic_publish(exchange="post_processing",
-                                  routing_key="archiving_" + archive_dict["hostname"],
-                                  body=dumps(archive_dict))
-
+            try:
+              channel.basic_publish(exchange="post_processing",
+                                    routing_key="archiving_" + archive_dict["hostname"],
+                                    body=dumps(archive_dict))
+            except:
+              logger.error("Resetting the lost RabbitMQ connection")
+              connection = pika.BlockingConnection(pika.ConnectionParameters(host="localhost"))
+              channel = connection.channel()
+              channel.basic_publish(exchange="post_processing",
+                                    routing_key="archiving_" + archive_dict["hostname"],
+                                    body=dumps(archive_dict))
 
   def _trigger(self, cand_data: Dict, dummy: bool = False) -> None:
 
