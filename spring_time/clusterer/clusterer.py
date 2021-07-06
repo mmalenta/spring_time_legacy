@@ -189,6 +189,7 @@ class Clusterer:
                           candidate["ra"],
                           candidate["dec"],
                           candidate["time_sent"],
+                          candidate["cand_hash"],
                           candidate["hostname"])))
 
         else:
@@ -206,6 +207,7 @@ class Clusterer:
                           candidate["ra"],
                           candidate["dec"],
                           candidate["time_sent"],
+                          candidate["cand_hash"],
                           candidate["hostname"])))
 
           heapq.heappush(self._cluster_candidates, 
@@ -218,6 +220,7 @@ class Clusterer:
                           candidate["ra"],
                           candidate["dec"],
                           candidate["time_sent"],
+                          candidate["cand_hash"],
                           candidate["hostname"])))
 
       except queue.Empty:
@@ -257,7 +260,7 @@ class Clusterer:
             "ra": trigger_candidate[1][5],
             "dec": trigger_candidate[1][6],
             "time_sent": trigger_candidate[1][7],
-            "hostname": trigger_candidate[1][8]
+            "hostname": trigger_candidate[1][9]
           }
 
           self._trigger(trigger_dict, True)
@@ -302,15 +305,7 @@ class Clusterer:
           for cand in current_cluster:
 
             archive_dict = {
-              "mjd": cand[1][0],
-              "dm": cand[1][1],
-              "snr": cand[1][2],
-              "beam_abs": cand[1][3],
-              "beam_type": cand[1][4],
-              "ra": cand[1][5],
-              "dec": cand[1][6],
-              "time_sent": cand[1][7],
-              "hostname": cand[1][8]
+              "cand_hash": cand[1][8]
             }
 
             try:
