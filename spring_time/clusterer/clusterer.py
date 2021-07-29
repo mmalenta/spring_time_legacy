@@ -422,13 +422,15 @@ class Clusterer:
     message = {
       "pretext": f"* {strftime('%Y-%m-%d %H:%M:%S', gmtime())} NEW TB trigger* \n",
       "color": "#37961d",
-      "text": f"MJD: {cand_data['mjd']}\n \
-                DM: {cand_data['dm']}\n \
-                SNR: {cand_data['snr']}\n \
-                Beam: {cand_data['beam_abs']}\n \
-                Beam type: {cand_data['beam_type']}\n \
-                RA: {cand_data['ra']}\n \
-                DEC: {cand_data['dec']}\n"
+      "text": (f"MJD: {cand_data['mjd']:.6f}\n"
+               f"DM: {cand_data['dm']:.2f}\n"
+               f"SNR: {cand_data['snr']:.2f}\n"
+               f"Beam: {cand_data['beam_abs']}\n"
+               f"Beam type: {cand_data['beam_type']}\n"
+               f"RA: {cand_data['ra']}\n"
+               f"DEC: {cand_data['dec']}\n"
+               f"Hostname: {cand_data['hostname']}"
+      )
     }
 
     trigger_message = {
