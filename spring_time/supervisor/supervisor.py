@@ -107,7 +107,7 @@ class Supervisor:
                               exchange_type="direct",
                               durable=True)
 
-    channel.queue_declare("clustering", durable=False)
+    channel.queue_declare("clustering", durable=True)
     channel.queue_bind("clustering", "post_processing")
     channel.basic_qos(prefetch_count=5)
     channel.basic_consume(queue="clustering", auto_ack=False, on_message_callback=self._send_cluster)
