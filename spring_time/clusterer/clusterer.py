@@ -438,5 +438,11 @@ class Clusterer:
     }
 
     trigger_message_json = dumps(trigger_message)
-    req.post("",
-              data=trigger_message_json)
+    try:
+      req.post("",
+                data=trigger_message_json)
+    except:
+      logging.error("Could not send the Slack message! "
+                    "Is the network connection down?")
+    else:
+      logging.debug("Slack message sent successfully")
