@@ -8,7 +8,7 @@ from astropy.time import Time
 from json import loads
 from socket import gethostname
 from typing import Dict
-
+from time import sleep
 from clusterer.clusterer import Clusterer
 
 logger = logging.getLogger(__name__)
@@ -103,13 +103,13 @@ class Supervisor:
 
     connection = pika.BlockingConnection(pika.ConnectionParameters(host="localhost"))
     channel = connection.channel()
+    channel.basic_qos(prefetch_count=1)
     channel.exchange_declare(exchange="post_processing",
                               exchange_type="direct",
                               durable=True)
 
     channel.queue_declare("clustering", durable=True)
     channel.queue_bind("clustering", "post_processing")
-    channel.basic_qos(prefetch_count=5)
     channel.basic_consume(queue="clustering", auto_ack=False, on_message_callback=self._send_cluster)
     logger.debug("Waiting for messages...")
     channel.start_consuming()

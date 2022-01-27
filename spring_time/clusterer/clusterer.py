@@ -1,7 +1,6 @@
 import csv
 import heapq
 import logging
-from threading import currentThread
 import pika
 import queue
 import requests as req
@@ -9,7 +8,7 @@ import requests as req
 from json import dumps
 from numpy import abs
 from socket import gethostname
-from time import gmtime, sleep, strftime, time
+from time import gmtime, strftime, time
 from typing import Dict
 
 from meertrig.voevent import VOEvent
@@ -188,8 +187,11 @@ class Clusterer:
                           candidate["beam_type"],
                           candidate["ra"],
                           candidate["dec"],
+                          candidate["bw_mhz"],
+                          candidate["cfreq_mhz"],
+                          candidate["nchan"],
+                          candidate["tsamp_ms"],
                           candidate["time_sent"],
-                          candidate["cand_hash"],
                           candidate["hostname"])))
 
         else:
@@ -197,6 +199,7 @@ class Clusterer:
           logger.debug("Time difference of %.2f."
                         " Will be considered for full TB clustering",
                         diff_time)
+
           heapq.heappush(self._buffer_candidates, 
                           (cand_time,
                           (candidate["mjd"],
@@ -206,8 +209,11 @@ class Clusterer:
                           candidate["beam_type"],
                           candidate["ra"],
                           candidate["dec"],
+                          candidate["bw_mhz"],
+                          candidate["cfreq_mhz"],
+                          candidate["nchan"],
+                          candidate["tsamp_ms"],
                           candidate["time_sent"],
-                          candidate["cand_hash"],
                           candidate["hostname"])))
 
           heapq.heappush(self._cluster_candidates, 
@@ -215,11 +221,6 @@ class Clusterer:
                           (candidate["mjd"],
                           candidate["dm"],
                           candidate["snr"],
-                          candidate["beam_abs"],
-                          candidate["beam_type"],
-                          candidate["ra"],
-                          candidate["dec"],
-                          candidate["time_sent"],
                           candidate["cand_hash"],
                           candidate["hostname"])))
 
@@ -230,14 +231,16 @@ class Clusterer:
 
         current_time = time()
         oldest_buffer = self._buffer_candidates[0]
-      
-        if ((current_time - oldest_buffer[0]) >= self._buffer_wait_limit):
+        oldest_buffer_time = oldest_buffer[0]
+        oldest_buffer_dm = oldest_buffer[1][1]
+
+        if ((current_time - oldest_buffer_time) >= self._buffer_wait_limit):
           logger.debug("Candidates ready for the Transient buffer clustering")
 
           # This will be a proper performance killer
           current_buffer = [candidate for candidate in self._buffer_candidates
-                            if (abs(candidate[0] - oldest_buffer[0]) <= self._time_thresh
-                            and abs(candidate[1][1] - oldest_buffer[1][1]) <= self._dm_thresh * oldest_cluster[0])]
+                            if (abs(candidate[0] - oldest_buffer_time) <= self._time_thresh
+                            and abs(candidate[1][1] - oldest_buffer_dm) <= self._dm_thresh * oldest_buffer_dm)]
 
           self._buffer_candidates = list(set(self._buffer_candidates)
                                           - set(current_buffer))
@@ -247,20 +250,26 @@ class Clusterer:
           logger.info("%d candidates left in the buffer queue",
                         len(self._buffer_candidates))
 
+          # Get the highest SNR candidate within the cluster
           current_buffer = sorted(current_buffer, key = lambda cand: cand[1][2], 
                                   reverse=True)
-          trigger_candidate = current_buffer[0]
+          trigger_candidate = current_buffer[0][1]
 
           trigger_dict = {
-            "mjd": trigger_candidate[1][0],
-            "dm": trigger_candidate[1][1],
-            "snr": trigger_candidate[1][2],
-            "beam_abs": trigger_candidate[1][3],
-            "beam_type": trigger_candidate[1][4],
-            "ra": trigger_candidate[1][5],
-            "dec": trigger_candidate[1][6],
-            "time_sent": trigger_candidate[1][7],
-            "hostname": trigger_candidate[1][9]
+            "mjd": trigger_candidate[0],
+            "iso_t": Time(trigger_candidate[0], format="mjd").iso,
+            "dm": trigger_candidate[1],
+            "snr": trigger_candidate[2],
+            "beam_abs": trigger_candidate[3],
+            "beam_type": trigger_candidate[4],
+            "ra": trigger_candidate[5],
+            "dec": trigger_candidate[6],
+            "bw_mhz": trigger_candidate[7],
+            "cfreq_mhz": trigger_candidate[8],
+            "nchan": trigger_candidate[9],
+            "tsamp_ms": trigger_candidate[10],
+            "time_sent": trigger_candidate[11],
+            "hostname": trigger_candidate[12]
           }
 
           self._trigger(trigger_dict, True)
@@ -272,6 +281,9 @@ class Clusterer:
 
         current_time = time()
         oldest_cluster = self._cluster_candidates[0]
+        oldest_cluster_time = oldest_cluster[0]
+        oldest_cluster_dm = oldest_cluster[1][1]
+
         if ((current_time - oldest_cluster[0]) >= self._cluster_wait_limit):
           logger.debug("Candidates ready for the final clustering")
 
@@ -284,8 +296,8 @@ class Clusterer:
 
           # This will be a proper performance killer
           current_cluster = [candidate for candidate in self._cluster_candidates
-                            if (abs(candidate[0] - oldest_cluster[0]) <= self._time_thresh
-                            and abs(candidate[1][1] - oldest_cluster[1][1]) <= self._dm_thresh * oldest_cluster[0])]
+                            if (abs(candidate[0] - oldest_cluster_time) <= self._time_thresh
+                            and abs(candidate[1][1] - oldest_cluster_dm) <= self._dm_thresh * oldest_cluster_dm)]
 
           self._cluster_candidates = list(set(self._cluster_candidates)
                                           - set(current_cluster))
@@ -305,19 +317,19 @@ class Clusterer:
           for cand in current_cluster:
 
             archive_dict = {
-              "cand_hash": cand[1][8]
+              "cand_hash": cand[1][3]
             }
 
             try:
               channel.basic_publish(exchange="post_processing",
-                                    routing_key="archiving_" + cand[1][9],
+                                    routing_key="archiving_" + cand[1][4],
                                     body=dumps(archive_dict))
             except:
               logger.error("Resetting the lost RabbitMQ connection")
               connection = pika.BlockingConnection(pika.ConnectionParameters(host="localhost"))
               channel = connection.channel()
               channel.basic_publish(exchange="post_processing",
-                                    routing_key="archiving_" + cand[1][9],
+                                    routing_key="archiving_" + cand[1][4],
                                     body=dumps(archive_dict))
 
   def _trigger(self, cand_data: Dict, dummy: bool = False) -> None:
@@ -352,6 +364,7 @@ class Clusterer:
       with open("clustering.out", "a") as cf:
         writer = csv.writer(cf, delimiter=" ")
         writer.writerow([cand_data["mjd"],
+                          cand_data["iso_t"],
                           cand_data["dm"],
                           cand_data["snr"],
                           cand_data["beam_abs"],
@@ -363,17 +376,17 @@ class Clusterer:
     else:    
 
       params = {
-        'utc': Time.now().iso,
+        'utc': cand_data["iso_t"],
         'title': 'Detection of test event',
         'short_name': 'Test event',
         'beam_semi_major': 64.0 / 60.0,
         'beam_semi_minor': 28.0 / 60.0,
         'beam_rotation_angle': 0.0,
-        'tsamp': 0.367,
-        'cfreq': 1284.0,
-        'bandwidth': 856.0,
-        'nchan': 4096,
-        'beam': 123,
+        'tsamp': cand_data["tsamp_ms"],
+        'cfreq': cand_data["cfreq_mhz"],
+        'bandwidth': cand_data["bw_mhz"],
+        'nchan': cand_data["nchan"],
+        'beam': cand_data["beam_abs"],
         'dm': cand_data["dm"],
         'dm_err': 0.25,
         'width': 0.300,
@@ -423,6 +436,7 @@ class Clusterer:
       "pretext": f"* {strftime('%Y-%m-%d %H:%M:%S', gmtime())} NEW TB trigger* \n",
       "color": "#37961d",
       "text": (f"MJD: {cand_data['mjd']:.6f}\n"
+               f"UTC: {cand_data['iso_t']}\n"
                f"DM: {cand_data['dm']:.2f}\n"
                f"SNR: {cand_data['snr']:.2f}\n"
                f"Beam: {cand_data['beam_abs']}\n"
