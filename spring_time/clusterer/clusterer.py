@@ -112,6 +112,8 @@ class Clusterer:
     self._dm_thresh = 0.05 
     self._time_thresh = 30e-03
 
+    self._buffer_keys = None
+
   def cluster(self) -> None:
 
     """
@@ -138,6 +140,9 @@ class Clusterer:
 
         current_time = time()
         cand_time = Time(candidate["mjd"], format="mjd").unix
+
+        if (self._buffer_keys == None):
+          self._buffer_keys = tuple(candidate.keys())
 
         diff_time = current_time - cand_time
         logger.debug(diff_time)
@@ -178,20 +183,13 @@ class Clusterer:
                           " Will not be saved by the TB!", diff_time)
           # There has to be a better way than constant data structure
           # swapping
-          heapq.heappush(self._cluster_candidates, 
+
+          heapq.heappush(self._cluster_candidates,
                           (cand_time, 
                           (candidate["mjd"],
                           candidate["dm"],
                           candidate["snr"],
-                          candidate["beam_abs"],
-                          candidate["beam_type"],
-                          candidate["ra"],
-                          candidate["dec"],
-                          candidate["bw_mhz"],
-                          candidate["cfreq_mhz"],
-                          candidate["nchan"],
-                          candidate["tsamp_ms"],
-                          candidate["time_sent"],
+                          candidate["cand_hash"],
                           candidate["hostname"])))
 
         else:
@@ -202,19 +200,7 @@ class Clusterer:
 
           heapq.heappush(self._buffer_candidates, 
                           (cand_time,
-                          (candidate["mjd"],
-                          candidate["dm"],
-                          candidate["snr"],
-                          candidate["beam_abs"],
-                          candidate["beam_type"],
-                          candidate["ra"],
-                          candidate["dec"],
-                          candidate["bw_mhz"],
-                          candidate["cfreq_mhz"],
-                          candidate["nchan"],
-                          candidate["tsamp_ms"],
-                          candidate["time_sent"],
-                          candidate["hostname"])))
+                          tuple(candidate.values())))
 
           heapq.heappush(self._cluster_candidates, 
                           (cand_time, 
@@ -253,23 +239,23 @@ class Clusterer:
           # Get the highest SNR candidate within the cluster
           current_buffer = sorted(current_buffer, key = lambda cand: cand[1][2], 
                                   reverse=True)
-          trigger_candidate = current_buffer[0][1]
+          trigger_candidate = {x[0]: x[1] for x in zip(self._buffer_keys, current_buffer[0][1])}
 
           trigger_dict = {
-            "mjd": trigger_candidate[0],
-            "iso_t": Time(trigger_candidate[0], format="mjd").iso,
-            "dm": trigger_candidate[1],
-            "snr": trigger_candidate[2],
-            "beam_abs": trigger_candidate[3],
-            "beam_type": trigger_candidate[4],
-            "ra": trigger_candidate[5],
-            "dec": trigger_candidate[6],
-            "bw_mhz": trigger_candidate[7],
-            "cfreq_mhz": trigger_candidate[8],
-            "nchan": trigger_candidate[9],
-            "tsamp_ms": trigger_candidate[10],
-            "time_sent": trigger_candidate[11],
-            "hostname": trigger_candidate[12]
+            "mjd": trigger_candidate["mjd"],
+            "iso_t": Time(trigger_candidate["mjd"], format="mjd").iso,
+            "dm": trigger_candidate["dm"],
+            "snr": trigger_candidate["snr"],
+            "beam_abs": trigger_candidate["beam_abs"],
+            "beam_type": trigger_candidate["beam_type"],
+            "ra": trigger_candidate["ra"],
+            "dec": trigger_candidate["dec"],
+            "bw_mhz": trigger_candidate["bw_mhz"],
+            "cfreq_mhz": trigger_candidate["cfreq_mhz"],
+            "nchan": trigger_candidate["nchan"],
+            "tsamp_ms": trigger_candidate["tsamp_ms"],
+            "time_sent": trigger_candidate["time_sent"],
+            "hostname": trigger_candidate["hostname"]
           }
 
           self._trigger(trigger_dict, True)
