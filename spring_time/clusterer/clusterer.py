@@ -183,15 +183,7 @@ class Clusterer:
                           (candidate["mjd"],
                           candidate["dm"],
                           candidate["snr"],
-                          candidate["beam_abs"],
-                          candidate["beam_type"],
-                          candidate["ra"],
-                          candidate["dec"],
-                          candidate["bw_mhz"],
-                          candidate["cfreq_mhz"],
-                          candidate["nchan"],
-                          candidate["tsamp_ms"],
-                          candidate["time_sent"],
+                          candidate["cand_hash"],
                           candidate["hostname"])))
 
         else:
