@@ -103,7 +103,7 @@ class Clusterer:
     self._voevent = VOEvent(host=configuration["voe_host"],
                             port=configuration["voe_port"])
 
-    self._buffer_wait_limit = 60
+    self._buffer_wait_limit = 50
     self._cluster_wait_limit = 120
 
     self._cluster_candidates = []
@@ -141,6 +141,8 @@ class Clusterer:
         current_time = time()
         cand_time = Time(candidate["mjd"], format="mjd").unix
 
+        # NOTE: This heavily relies on the ordering of the dictionary
+        # not changing. Use Python 3.6+ ONLY
         if (self._buffer_keys == None):
           self._buffer_keys = tuple(candidate.keys())
 
@@ -239,26 +241,10 @@ class Clusterer:
           # Get the highest SNR candidate within the cluster
           current_buffer = sorted(current_buffer, key = lambda cand: cand[1][2], 
                                   reverse=True)
+          
           trigger_candidate = {x[0]: x[1] for x in zip(self._buffer_keys, current_buffer[0][1])}
-
-          trigger_dict = {
-            "mjd": trigger_candidate["mjd"],
-            "iso_t": Time(trigger_candidate["mjd"], format="mjd").iso,
-            "dm": trigger_candidate["dm"],
-            "snr": trigger_candidate["snr"],
-            "beam_abs": trigger_candidate["beam_abs"],
-            "beam_type": trigger_candidate["beam_type"],
-            "ra": trigger_candidate["ra"],
-            "dec": trigger_candidate["dec"],
-            "bw_mhz": trigger_candidate["bw_mhz"],
-            "cfreq_mhz": trigger_candidate["cfreq_mhz"],
-            "nchan": trigger_candidate["nchan"],
-            "tsamp_ms": trigger_candidate["tsamp_ms"],
-            "time_sent": trigger_candidate["time_sent"],
-            "hostname": trigger_candidate["hostname"]
-          }
-
-          self._trigger(trigger_dict, True)
+          trigger_candidate["iso_t"] = Time(trigger_candidate["mjd"], format="mjd").iso
+          self._trigger(trigger_candidate, True)
 
           oldest_buffer = []
           current_buffer = []
@@ -375,7 +361,7 @@ class Clusterer:
         'beam': cand_data["beam_abs"],
         'dm': cand_data["dm"],
         'dm_err': 0.25,
-        'width': 0.300,
+        'width': cand_data["width"],
         'snr': cand_data["snr"],
         'flux': 10,
         'ra': 20.4,
@@ -423,8 +409,9 @@ class Clusterer:
       "color": "#37961d",
       "text": (f"MJD: {cand_data['mjd']:.6f}\n"
                f"UTC: {cand_data['iso_t']}\n"
-               f"DM: {cand_data['dm']:.2f}\n"
+               f"DM: {cand_data['dm']:.2f} pc cm^-3\n"
                f"SNR: {cand_data['snr']:.2f}\n"
+               f"Width: {cand_data['width']:.2f} ms\n"
                f"Beam: {cand_data['beam_abs']}\n"
                f"Beam type: {cand_data['beam_type']}\n"
                f"RA: {cand_data['ra']}\n"
