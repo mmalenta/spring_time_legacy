@@ -1,12 +1,15 @@
 import csv
 import heapq
 import logging
+import numpy as np
 import pika
 import queue
 import requests as req
 
 from json import dumps
 from numpy import abs
+from scipy.optimize import newton
+from scipy.special import erf
 from socket import gethostname
 from time import gmtime, strftime, time
 from typing import Dict
@@ -50,6 +53,21 @@ class Clusterer:
       This can be different to the actual hostname
       that this code is running on if the supervisor is run inside a
       Docker container with --hostname option
+
+    _sigma_limit: float
+      SNR limit for the clustering DM offset.
+
+    _alpha: float
+      Constant coefficient that depends on _sigma limit. We do not (want to)
+      calculate it every time we need it - use this precomputed value instead.
+
+    _cluster_margin_s: float
+      Time marging in seconds in front of the currently clustered oldest
+      candidate to consider for clustering.
+
+    _cluster_margin_mjd: float
+      Same time marging as above, but converted to MJD. Candidate times are
+      in MJD, so it helps us to avoid unnecessary conversions.
 
     _voevent_defaults: Dict
       Default parameter values for the trigger. Contains information
@@ -114,6 +132,45 @@ class Clusterer:
 
     self._buffer_keys = None
 
+    self._sigma_limit = 7.0
+    self._alpha = np.sqrt(np.pi) / 2.0 / self._sigma_limit
+    self._cluster_margin_s = 1.5
+    self._cluster_margin_mjd = self._cluster_margin_s / 86400.0
+
+  def _delta_dm(self, candidate: Dict) -> float:
+
+    """
+    
+    Calculate the DM offset for a candidate SNR to reach self._sigma_limit.
+
+    Calculates the approximate value for the DM offset based on the equations
+    12 and 13 from "Searches for fast radio transients" by J.M Cordes and
+    M. A. McLaughlin. Equation 12 is rearranged to derive equation
+    zeta = erf(zeta) * beta (beta is used to simply keep all the constants
+    together) for the point where the candidate SNR reaches the predefined
+    self._sigma_limit. Newton-Raphson method is then used to obtain zeta
+    when zeta - erf(zeta) * beta = 0 (we can use the fact that erf'(x) is a
+    nice function).
+    
+    """
+
+    beta = self._alpha * candidate["snr"]
+    gamma = (6.91e-03 * candidate["bw_mhz"] 
+            / candidate["width"] 
+            / (candidate["cfreq_mhz"] / 1000.0)**3)
+
+    f = lambda x, : x - erf(x) * beta
+    fp = lambda x: 1 - 2.0 / np.sqrt(np.pi) * beta * np.e ** (-1.0 * x**2)
+
+    # NOTE: This will be approaching zero from the side of the
+    # candidate DM.
+    # TODO: Need to check whether SNR at the candidate DM is below our
+    # SNR limit. If it isn't we have to move the DM to a higher one as
+    # we would end up with the final delta DM of 0.
+    zeta = newton(f, gamma * candidate["dm"], fprime=fp)
+
+    return zeta / gamma
+
   def cluster(self) -> None:
 
     """
@@ -143,6 +200,7 @@ class Clusterer:
 
         # NOTE: This heavily relies on the ordering of the dictionary
         # not changing. Use Python 3.6+ ONLY
+        # TODO: We will be adding extra keys
         if (self._buffer_keys == None):
           self._buffer_keys = tuple(candidate.keys())
 
@@ -186,10 +244,13 @@ class Clusterer:
           # There has to be a better way than constant data structure
           # swapping
 
+          #candidate["delta_dm"] = self._delta_dm(candidate)
+
           heapq.heappush(self._cluster_candidates,
                           (cand_time, 
                           (candidate["mjd"],
                           candidate["dm"],
+                          #candidate["delta_dm"],
                           candidate["snr"],
                           candidate["cand_hash"],
                           candidate["hostname"])))
@@ -200,6 +261,8 @@ class Clusterer:
                         " Will be considered for full TB clustering",
                         diff_time)
 
+          #candidate["delta_dm"] = self._delta_dm(candidate)
+
           heapq.heappush(self._buffer_candidates, 
                           (cand_time,
                           tuple(candidate.values())))
@@ -208,6 +271,7 @@ class Clusterer:
                           (cand_time, 
                           (candidate["mjd"],
                           candidate["dm"],
+                          #candidate["delta_dm"],
                           candidate["snr"],
                           candidate["cand_hash"],
                           candidate["hostname"])))
