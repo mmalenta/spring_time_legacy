@@ -552,7 +552,7 @@ class Clusterer:
 
     trigger_message_json = dumps(trigger_message)
     try:
-      req.post("https://hooks.slack.com/services/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",
+      req.post("",
                 data=trigger_message_json)
     except:
       logging.error("Could not send the Slack message! "
