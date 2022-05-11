@@ -123,7 +123,7 @@ class Clusterer:
     self._voevent = VOEvent(host=configuration["voe_host"],
                             port=configuration["voe_port"])
 
-    self._buffer_wait_limit = 10
+    self._buffer_wait_limit = 40
     self._cluster_wait_limit = 120
 
     self._cluster_candidates = []
@@ -261,13 +261,7 @@ class Clusterer:
           # TODO: There has to be a better way than constant data structure
           # swapping
           heapq.heappush(self._cluster_candidates,
-                          (cand_unix_time, 
-                          candidate["mjd"],
-                          candidate["dm"],
-                          candidate["snr"],
-                          candidate["cand_hash"],
-                          candidate["hostname"],
-                          candidate["delta_dm"]))
+                        (cand_unix_time,) + tuple(candidate.values()))
 
         else:
 
@@ -281,13 +275,7 @@ class Clusterer:
                           (cand_unix_time,) + tuple(candidate.values()))
 
           heapq.heappush(self._cluster_candidates, 
-                          (cand_unix_time, 
-                          candidate["mjd"],
-                          candidate["dm"],
-                          candidate["snr"],
-                          candidate["cand_hash"],
-                          candidate["hostname"],
-                          candidate["delta_dm"]))
+                          (cand_unix_time,) + tuple(candidate.values()))
 
       except queue.Empty:
         pass 
@@ -344,8 +332,9 @@ class Clusterer:
           trigger_candidate["iso_t"] = Time(trigger_candidate["mjd"], format="mjd").iso
           self._trigger(trigger_candidate, True)
 
-          oldest_buffer = []
-          current_buffer = []
+          oldest_buffer = None
+          current_buffer = None
+          clustered = None
 
       if (len(self._cluster_candidates) > 0):
 
@@ -365,41 +354,49 @@ class Clusterer:
 
           # This will be a proper performance killer
           current_cluster = [candidate for candidate in self._cluster_candidates
-                            if (abs(candidate[0] - oldest_cluster_time) <= self._time_thresh
-                            and abs(candidate[1][1] - oldest_cluster_dm) <= self._dm_thresh * oldest_cluster_dm)]
+                            if (abs(candidate[self._unix_time_index] - oldest_cluster_unix_time) <= self._cluster_margin_s)]
+
+          cluster_data = np.array(current_cluster, dtype=object)
+          # Need to add clustering status
+          cluster_data = np.append(cluster_data,
+                                      np.zeros((cluster_data.shape[0], 1)).astype(bool),
+                                      axis=1)
+
+          self._create_cluster(cluster_data)
+
+          clustered = cluster_data[cluster_data[:, -1] == True][:, :-1]
 
           self._cluster_candidates = list(set(self._cluster_candidates)
-                                          - set(current_cluster))
+                                          - set(map(tuple, clustered)))
 
-          logger.info("%d candidates in the cluster", len(current_cluster))
-          print(current_cluster)
+          heapq.heapify(self._cluster_candidates)
+
+          logger.info("%d candidates in the final cluster", clustered.shape[0])
 
           logger.info("%d candidates left in the clustering queue",
                         len(self._cluster_candidates))
 
-          # Now sort the data by SNR and get the highest-SNR candidate
-          # We send the highest-SNR candidate to the trigger
-          # We send all the candidates to the archiving
-          current_cluster = sorted(current_cluster, key = lambda cand: cand[1][2], 
-                                  reverse=True)
-
-          for cand in current_cluster:
+          for cand in clustered:
 
             archive_dict = {
-              "cand_hash": cand[1][3]
+              "cand_hash": cand[self._buffer_keys.index("cand_hash")]
             }
 
             try:
               channel.basic_publish(exchange="post_processing",
-                                    routing_key="archiving_" + cand[1][4],
+                                    routing_key="archiving_" + cand[self._buffer_keys.index("hostname")],
                                     body=dumps(archive_dict))
             except:
               logger.error("Resetting the lost RabbitMQ connection")
               connection = pika.BlockingConnection(pika.ConnectionParameters(host="localhost"))
               channel = connection.channel()
               channel.basic_publish(exchange="post_processing",
-                                    routing_key="archiving_" + cand[1][4],
+                                    routing_key="archiving_" + cand[self._buffer_keys.index("hostname")],
                                     body=dumps(archive_dict))
+
+          oldest_cluster = None
+          current_cluster = None
+          clustered = None
 
   def _create_cluster(self, cluster_data):
 
