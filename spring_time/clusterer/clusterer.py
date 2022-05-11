@@ -7,6 +7,7 @@ import pika
 import queue
 import requests as req
 
+from dotenv import dotenv_values
 from json import dumps
 from numpy import abs
 from scipy.optimize import newton
@@ -144,6 +145,8 @@ class Clusterer:
     self._snr_index = -1
     self._width_index = -1
     self._delta_dm_index = -1
+
+    self._slack_hook = dotenv_values(".env")["SLACK_HOOK"]
 
   def _delta_dm(self, candidate: Dict) -> float:
 
@@ -552,7 +555,7 @@ class Clusterer:
 
     trigger_message_json = dumps(trigger_message)
     try:
-      req.post("",
+      req.post(self._slack_hook,
                 data=trigger_message_json)
     except:
       logging.error("Could not send the Slack message! "
