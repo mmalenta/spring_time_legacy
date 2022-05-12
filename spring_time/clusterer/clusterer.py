@@ -330,6 +330,7 @@ class Clusterer:
           
           trigger_candidate = {x[0]: x[1] for x in zip(self._buffer_keys, clustered[0])}
           trigger_candidate["iso_t"] = Time(trigger_candidate["mjd"], format="mjd").iso
+          trigger_candidate["members"] =len(clustered)
           self._trigger(trigger_candidate, True)
 
           oldest_buffer = None
@@ -533,17 +534,18 @@ class Clusterer:
     message = {
       "pretext": f"* {strftime('%Y-%m-%d %H:%M:%S', gmtime())} NEW TB trigger* \n",
       "color": "#37961d",
-      "text": (f"MJD: {cand_data['mjd']:.6f}\n"
-               f"UTC: {cand_data['iso_t']}\n"
-               f"DM: {cand_data['dm']:.2f} pc cm^-3\n"
-               f"SNR: {cand_data['snr']:.2f}\n"
-               f"Width: {cand_data['width']:.2f} ms\n"
-               f"Beam: {cand_data['beam_abs']}\n"
-               f"Beam type: {cand_data['beam_type']}\n"
-               f"RA: {cand_data['ra']}\n"
-               f"DEC: {cand_data['dec']}\n"
-               f"Hostname: {cand_data['hostname']}"
-      )
+      "text": (f"Cluster members: {cand_data['members']}\n"
+                f"*Cluster head* (highest SNR member):\n"
+                f"MJD: {cand_data['mjd']:.6f}\n"
+                f"UTC: {cand_data['iso_t']}\n"
+                f"DM: {cand_data['dm']:.2f} pc cm^-3\n"
+                f"SNR: {cand_data['snr']:.2f}\n"
+                f"Width: {cand_data['width']:.2f} ms\n"
+                f"Beam: {cand_data['beam_abs']}\n"
+                f"Beam type: {cand_data['beam_type']}\n"
+                f"RA: {cand_data['ra']}\n"
+                f"DEC: {cand_data['dec']}\n"
+                f"Hostname: {cand_data['hostname']}")
     }
 
     trigger_message = {
