@@ -81,6 +81,29 @@ class Clusterer:
       Class for handling VOEvents. Responsible for sending the evnets
       to the broker.
 
+    _clustering_modes: List[str]
+      The behaviour of the clustering algorithm can change depending
+      on the needs. There are currently 3 modes implemented for
+      points (children) to be considered in the same cluster as the
+      currently considered point (parent):
+      strict - both parent point and its children have to be within
+      their respective boxcars - results in the highest number of 
+      smallest clusters
+      relaxed - only the child is required to be in the boxcar of
+      its parent cluster point - resutls in a smaller number of
+      slightly larger clusters
+      weak - boxcars of parent and its children have to just overlap,
+      no need for any of the points to be within the boxcar - results
+      in the smallest number of large clusters.
+
+    _clustering_mode: str
+      Currently selected clustering mode. At the moment it is a 
+      setting that is selected at the startup. In the future it will
+      be adjusted dynamically, depending on the number of candidates,
+      e.g. will automatically move to the weak move in the presence of
+      many candidates (RFI or known sources) to recude the pressure on
+      the trigerring system.
+
     IMPORTANT TIME VARIABLES:
 
     _buffer_wait_limit: float [s]
@@ -147,6 +170,9 @@ class Clusterer:
     self._delta_dm_index = -1
 
     self._slack_hook = dotenv_values(".env")["SLACK_HOOK"]
+
+    self._clustering_modes = ["strict", "relaxed", "weak"]
+    self._clustering_mode = self._clustering_modes[2]
 
   def _delta_dm(self, candidate: Dict) -> float:
 
@@ -393,10 +419,27 @@ class Clusterer:
       # Get points within the neighbourhood of the current point
       # 1. DM within the delta DM of the current point
       # 2. MJD within the width of the current point
-      mask_neighbourhood = np.logical_and(np.abs(cluster_data[:, self._dm_index] - point[self._dm_index]) <= point[self._delta_dm_index],
-                                          np.abs(cluster_data[:, self._mjd_index] - point[self._mjd_index]) <= (point[self._width_index] / 2.0 / 1000.0 / 86400.0))
+      #mask_neighbourhood = np.logical_and(np.abs(cluster_data[:, self._dm_index] - point[self._dm_index]) <= point[self._delta_dm_index],
+      #                                    np.abs(cluster_data[:, self._mjd_index] - point[self._mjd_index]) <= (point[self._width_index] / 2.0 / 1000.0 / 86400.0))
 
+      if self._clustering_mode == "relaxed":
+        
+        dm_mask = np.abs(cluster_data[:, self._dm_index] - point[self._dm_index]) <= point[self._delta_dm_index]
+        time_mask = np.abs(cluster_data[:, self._mjd_index] - point[self._mjd_index]) <= (point[self._width_index] / 2.0 / 1000.0 / 86400.0)
 
+      elif self._clustering_mode == "strict":
+        
+        dm_mask = np.logical_and(np.abs(cluster_data[:, self._dm_index] - point[self._dm_index]) <= point[self._delta_dm_index],
+                                  np.abs(point[self._dm_index] - cluster_data[:, self._dm_index]) <= cluster_data[:, self._delta_dm_index])
+        time_mask = np.logical_and(np.abs(cluster_data[:, self._mjd_index] - point[self._mjd_index]) <= (point[self._width_index] / 2.0 / 1000.0 / 86400.0),
+                                    np.abs(point[self._mjd_index] - cluster_data[:, self._mjd_index]) <= (cluster_data[:, self._width_index] / 2.0 / 1000.0 / 86400.0))
+
+      elif self._clustering_mode == "weak":
+        
+        dm_mask = np.abs(cluster_data[:, self._dm_index] - point[self._dm_index]) <= (cluster_data[:, self._delta_dm_index] + point[self._delta_dm_index])
+        time_mask = np.abs(cluster_data[:, self._mjd_index] - point[self._mjd_index]) <= ((cluster_data[:, self._width_index] + point[self._width_index]) / 2.0 / 1000.0 / 86400.0)
+ 
+      mask_neighbourhood = np.logical_and(dm_mask, time_mask)
       # Combine the neighbourhood mask with candidates that have not yet
       # been included - we don't want to constantly consider points already
       # in the cluster
