@@ -254,30 +254,22 @@ class Clusterer:
                                   routing_key="archiving_" + candidate["hostname"],
                                   body=dumps(candidate))
 
-        elif (diff_time > self._buffer_wait_limit):
+        else:
 
-          logger.warning("Time difference of %.2f!"
-                          " Will not be saved by the TB!", diff_time)
-          # TODO: There has to be a better way than constant data structure
-          # swapping
+          # This has to be done in any case
           candidate["delta_dm"] = self._delta_dm(candidate)
-
           heapq.heappush(self._cluster_candidates,
                         (cand_unix_time,) + tuple(candidate.values()))
 
-        else:
-
-          logger.debug("Time difference of %.2f."
+          if (diff_time > self._buffer_wait_limit):
+            logger.warning("Time difference of %.2f!"
+                          " Will not be saved by the TB!", diff_time)
+          else:
+            heapq.heappush(self._buffer_candidates, 
+                          (cand_unix_time,) + tuple(candidate.values()))
+            logger.debug("Time difference of %.2f."
                         " Will be considered for full TB clustering",
                         diff_time)
-
-          candidate["delta_dm"] = self._delta_dm(candidate)
-
-          heapq.heappush(self._buffer_candidates, 
-                          (cand_unix_time,) + tuple(candidate.values()))
-
-          heapq.heappush(self._cluster_candidates, 
-                          (cand_unix_time,) + tuple(candidate.values()))
 
       except queue.Empty:
         pass 
