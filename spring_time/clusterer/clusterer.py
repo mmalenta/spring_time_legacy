@@ -260,6 +260,8 @@ class Clusterer:
                           " Will not be saved by the TB!", diff_time)
           # TODO: There has to be a better way than constant data structure
           # swapping
+          candidate["delta_dm"] = self._delta_dm(candidate)
+
           heapq.heappush(self._cluster_candidates,
                         (cand_unix_time,) + tuple(candidate.values()))
 
@@ -345,13 +347,6 @@ class Clusterer:
 
         if ((current_time - oldest_cluster[0]) >= self._cluster_wait_limit):
           logger.debug("Candidates ready for the final clustering")
-
-          """
-            This clustering algorithm modifies the approach currently
-            used for the MeerTRAB database by Fabian Jankowski
-            The original code can be found under
-            https://bitbucket.org/jankowsk/meertrapdb/src/master/
-          """
 
           # This will be a proper performance killer
           current_cluster = [candidate for candidate in self._cluster_candidates
