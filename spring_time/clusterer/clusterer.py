@@ -394,7 +394,7 @@ class Clusterer:
       # 1. DM within the delta DM of the current point
       # 2. MJD within the width of the current point
       mask_neighbourhood = np.logical_and(np.abs(cluster_data[:, self._dm_index] - point[self._dm_index]) <= point[self._delta_dm_index],
-                                          np.abs(cluster_data[:, self._mjd_index] - point[self._mjd_index]) <= (point[self._width_index] / 1000.0 / 86400.0))
+                                          np.abs(cluster_data[:, self._mjd_index] - point[self._mjd_index]) <= (point[self._width_index] / 2.0 / 1000.0 / 86400.0))
 
 
       # Combine the neighbourhood mask with candidates that have not yet
