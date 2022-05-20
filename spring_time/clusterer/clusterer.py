@@ -165,10 +165,23 @@ class Clusterer:
     
     """
 
+    # We need to make sure that the limiting DM for the NR method is below 
+    # our sigma limit - the calculation will fail otherwise
+    limit_dm = candidate["dm"]
+
     beta = self._alpha * candidate["snr"]
     gamma = (6.91e-03 * candidate["bw_mhz"] 
             / candidate["width"] 
             / (candidate["cfreq_mhz"] / 1000.0)**3)
+
+    limit_snr = candidate["snr"] * np.sqrt(np.pi) / 2.0 / (gamma * limit_dm) * erf(gamma * limit_dm)
+
+    while limit_snr >= self._sigma_limit:
+      logger.debug("DM delta of %.3f results in SNR of %.2f. Doubling the delta limit", limit_dm, limit_snr)
+      limit_dm = 2 * limit_dm
+      limit_snr = candidate["snr"] * np.sqrt(np.pi) / 2.0 / (gamma * limit_dm) * erf(gamma * limit_dm)
+    
+    logger.debug("DM delta of %.3f results in SNR of %.2f", limit_dm, limit_snr)
 
     f = lambda x, : x - erf(x) * beta
     fp = lambda x: 1 - 2.0 / np.sqrt(np.pi) * beta * np.e ** (-1.0 * x**2)
@@ -178,7 +191,7 @@ class Clusterer:
     # TODO: Need to check whether SNR at the candidate DM is below our
     # SNR limit. If it isn't we have to move the DM to a higher one as
     # we would end up with the final delta DM of 0.
-    zeta = newton(f, gamma * candidate["dm"], fprime=fp)
+    zeta = newton(f, gamma * limit_dm, fprime=fp)
 
     return zeta / gamma
 
