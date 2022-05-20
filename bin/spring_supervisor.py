@@ -10,19 +10,57 @@ logger = logging.getLogger()
 
 class ColouredFormatter(logging.Formatter):
 
-  custom_format = "[%(asctime)s] [%(process)d %(processName)s] [\033[1;{0}m%(levelname)s\033[0m] [%(module)s] %(message)s"
+  """
+  
+  Provides a custom logger formatter.
+  
+  """
+
+  custom_format = "[%(asctime)s] [%(process)d %(processName)s] " \
+                  "[\033[1;{0}m%(levelname)s\033[0m] [%(module)s] %(message)s"
 
   def format(self, record):
 
     colours = {
       logging.DEBUG: 30,
       logging.INFO: 32,
+      15: 36,
       logging.WARNING: 33,
       logging.ERROR: 31
     }
 
     colour_number = colours.get(record.levelno)
     return logging.Formatter(self.custom_format.format(colour_number), datefmt="%a %Y-%m-%d %H:%M:%S").format(record)
+
+class ClusterFilter():
+
+  """
+
+  Provides a custom logger filter for cluster messages.
+
+  """
+
+  def __init__(self, level=15):
+    self._level = level
+
+  def filter(self, record) -> bool:
+
+    """
+    
+    Checks whether the level of the current record is the same as
+    the cluster filte level.
+
+    Parameters:
+
+      record
+
+    Returns:
+
+      : bool
+    
+    """
+
+    return record.levelno == self._level
 
 def main():
 
@@ -60,12 +98,21 @@ def main():
                           default=8090)
 
   arguments = parser.parse_args()
+  logging.addLevelName(15, "CANDIDATE")
   logger.setLevel(getattr(logging, arguments.log.upper()))
-  handler = logging.StreamHandler()
-  handler.setLevel(getattr(logging, arguments.log.upper()))
-  handler.setFormatter(ColouredFormatter())
-  logger.addHandler(handler)
+  clhandler = logging.StreamHandler()
+  clhandler.setLevel(getattr(logging, arguments.log.upper()))
+  clhandler.setFormatter(ColouredFormatter())
+  logger.addHandler(clhandler)
   logger.debug("Logging set up")
+
+  # TODO: Add path there - we need to pass it
+  fl_handler = logging.FileHandler()
+  fl_formatter = logging.Formatter("%(asctime)s: %(message)s",
+                                datefmt="%a %Y-%m-%d %H:%M:%S")
+  fl_handler.setFormatter(fl_formatter)
+  fl_handler.addFilter(ClusterFilter())
+  logger.addHandler(fl_handler)
 
   configuration = {
     "voe_defaults": arguments.voedef,
