@@ -19,6 +19,8 @@ from typing import Dict
 from meertrig.voevent import VOEvent
 from meertrig.config_helpers import get_config
 
+from astropy import units
+from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
 logger = logging.getLogger(__name__)
@@ -324,7 +326,7 @@ class Clusterer:
           
           trigger_candidate = {x[0]: x[1] for x in zip(self._buffer_keys, clustered[0])}
           trigger_candidate["iso_t"] = Time(trigger_candidate["mjd"], format="mjd").iso
-          trigger_candidate["members"] =len(clustered)
+          trigger_candidate["members"] = len(clustered)
           self._trigger(trigger_candidate, True)
 
           oldest_buffer = None
@@ -445,6 +447,14 @@ class Clusterer:
 
     """
 
+    trigger_coord = SkyCoord(ra=cand_data["ra"], dec=cand_data["dec"],
+                              unit=(units.hourangle, units.deg), frame="icrs")
+
+    cand_data["ra_deg"] = trigger_coord.ra.deg
+    cand_data["dec_deg"] = trigger_coord.dec.deg
+    cand_data["gl"] = trigger_coord.galactic.l.deg
+    cand_data["gb"] = trigger_coord.galactic.b.deg
+
     if dummy:
 
       with open("clustering.out", "a") as cf:
@@ -457,6 +467,10 @@ class Clusterer:
                           cand_data["beam_type"],
                           cand_data["ra"],
                           cand_data["dec"],
+                          cand_data["ra_deg"],
+                          cand_data["dec_deg"],
+                          cand_data["gl"],
+                          cand_data["gb"],
                           cand_data["time_sent"]])
 
     else:    
@@ -478,10 +492,10 @@ class Clusterer:
         'width': cand_data["width"],
         'snr': cand_data["snr"],
         'flux': 10,
-        'ra': 20.4,
-        'dec': 45.0,
-        'gl': 10,
-        'gb': 20,
+        'ra': cand_data["ra_deg"],
+        'dec': cand_data["dec_deg"],
+        'gl': cand_data["gl"],
+        'gb': cand_data["gb"],
         'name': "Source",
         'importance': 0.6,
         'internal': 1,
@@ -530,8 +544,10 @@ class Clusterer:
                 f"Width: {cand_data['width']:.2f} ms\n"
                 f"Beam: {cand_data['beam_abs']}\n"
                 f"Beam type: {cand_data['beam_type']}\n"
-                f"RA: {cand_data['ra']}\n"
-                f"DEC: {cand_data['dec']}\n"
+                f"RA: {cand_data['ra']} ({cand_data['ra_deg']:.2f}\u00b0)\n"
+                f"DEC: {cand_data['dec']} ({cand_data['dec_deg']:.2f}\u00b0)\n"
+                f"gl: {cand_data['gl']:.2f}\u00b0\n"
+                f"gb: {cand_data['gb']:.2f}\u00b0\n"
                 f"Hostname: {cand_data['hostname']}")
     }
 
